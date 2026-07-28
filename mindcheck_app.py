@@ -650,6 +650,32 @@ f"""<div style='text-align:center;padding:2rem 1.5rem;background:{r_bg};border:3
 <div style='font-size:1.25rem;color:#333;margin-top:0.5rem;font-weight:600;'>{r_action}</div>
 </div>""", unsafe_allow_html=True)
 
+    # ── RISK GAUGE ───────────────────────────────
+    # The needle points to the middle of the band, because this result is a
+    # 3-level category, not a continuous 0-100 score. Showing a precise
+    # number would imply accuracy this method does not have.
+    if r_title == "Low Risk":
+        needle_x, needle_y, gauge_col = 113, 130, "#4CAF50"
+    elif r_title == "Moderate Risk":
+        needle_x, needle_y, gauge_col = 200, 80, "#FFA726"
+    else:
+        needle_x, needle_y, gauge_col = 287, 130, "#E53935"
+
+    st.markdown(
+f"""<div style='text-align:center;margin:1.5rem 0;'>
+<svg viewBox="0 0 400 250" style="width:100%;max-width:420px;height:auto;">
+<path d="M 70 180 A 130 130 0 0 1 135 67" stroke="#4CAF50" stroke-width="34" fill="none" opacity="{1.0 if r_title=='Low Risk' else 0.25}"/>
+<path d="M 135 67 A 130 130 0 0 1 265 67" stroke="#FFA726" stroke-width="34" fill="none" opacity="{1.0 if r_title=='Moderate Risk' else 0.25}"/>
+<path d="M 265 67 A 130 130 0 0 1 330 180" stroke="#E53935" stroke-width="34" fill="none" opacity="{1.0 if r_title=='High Risk' else 0.25}"/>
+<text x="72" y="214" font-size="20" font-weight="700" fill="#4CAF50" text-anchor="middle">LOW</text>
+<text x="200" y="34" font-size="20" font-weight="700" fill="#FFA726" text-anchor="middle">MODERATE</text>
+<text x="330" y="214" font-size="20" font-weight="700" fill="#E53935" text-anchor="middle">HIGH</text>
+<line x1="200" y1="180" x2="{needle_x}" y2="{needle_y}" stroke="#37474F" stroke-width="7" stroke-linecap="round"/>
+<circle cx="200" cy="180" r="15" fill="#37474F"/>
+<text x="200" y="243" font-size="27" font-weight="800" fill="{gauge_col}" text-anchor="middle">{r_title.upper()}</text>
+</svg>
+</div>""", unsafe_allow_html=True)
+
     # ── PLAIN-LANGUAGE EXPLANATION ───────────────
     cog_plain = ("Your answers were mostly correct." if score >= 26
                  else "You got some of the questions wrong." if score >= 18
