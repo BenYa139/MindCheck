@@ -1,0 +1,6 @@
+streamlit
+SpeechRecognition
+numpy
+scipy
+scikit-learn
+anthropic
