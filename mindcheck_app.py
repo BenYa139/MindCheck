@@ -622,22 +622,70 @@ def step_results():
             </div>
         """, unsafe_allow_html=True)
 
-    # ── What this does and does not mean ─────────
-    st.markdown("""
-        <div style='padding:1.25rem;background:#fff8e6;border-left:4px solid #E8A33D;
-        border-radius:8px;margin:1rem 0;'>
-            <div style='font-weight:700;margin-bottom:0.5rem;'>How to read this result</div>
-            <div style='font-size:0.9rem;line-height:1.6;color:#444;'>
-            These two measures are shown <b>separately and deliberately</b>. They are
-            descriptive observations about this session, not a combined risk score and
-            not a diagnosis.<br><br>
-            In testing on 100 recordings from a research database, speech timing alone
-            distinguished people with and without dementia only about
-            <b>64% of the time</b> — better than chance, but far from reliable for any
-            single person. A result outside the typical range may reflect tiredness,
-            an unfamiliar task, background noise, or simply individual speaking style.<br><br>
-            <b>If you have concerns about memory or thinking, speak to a doctor.</b>
-            This tool cannot answer that question and is not designed to.
+    # ── OVERALL RESULT ───────────────────────────
+    # Combines the two measures into one plain-language outcome.
+    # Wording is deliberately about "what to do next", not "what you have":
+    # at 61% accuracy this cannot state anyone's Alzheimer's risk.
+    cog_concern = score < 26
+    speech_concern = s_level in ("somewhat_elevated", "elevated")
+
+    if not cog_concern and not speech_concern:
+        r_bg, r_border = "#E8F5E9", "#4CAF50"
+        r_icon, r_title = "🟢", "Low Concern"
+        r_line = "Nothing in today's check stood out."
+        r_action = "Keep an eye on things, and check again in a few months if you like."
+    elif cog_concern and speech_concern:
+        r_bg, r_border = "#FDECEA", "#E53935"
+        r_icon, r_title = "🟠", "Higher Concern"
+        r_line = "Both parts of today's check were outside the usual range."
+        r_action = "Please make an appointment to talk with a doctor."
+    else:
+        r_bg, r_border = "#FFF8E1", "#FFA726"
+        r_icon, r_title = "🟡", "Some Concern"
+        r_line = "One part of today's check was outside the usual range."
+        r_action = "It would be worth mentioning this to a doctor at your next visit."
+
+    st.markdown(f"""
+        <div style='text-align:center;padding:2rem 1.5rem;background:{r_bg};
+        border:3px solid {r_border};border-radius:20px;margin:1.5rem 0;'>
+            <div style='font-size:1.1rem;color:#555;margin-bottom:0.5rem;'>Today's Result</div>
+            <div style='font-size:2.6rem;font-weight:800;line-height:1.2;'>{r_icon} {r_title}</div>
+            <div style='font-size:1.25rem;color:#333;margin-top:1rem;'>{r_line}</div>
+            <div style='font-size:1.25rem;color:#333;margin-top:0.5rem;font-weight:600;'>{r_action}</div>
+        </div>
+    """, unsafe_allow_html=True)
+
+    # ── PLAIN-LANGUAGE EXPLANATION ───────────────
+    cog_plain = ("Your answers were mostly correct." if score >= 26
+                 else "You got some of the questions wrong." if score >= 18
+                 else "Many of the questions were answered incorrectly.")
+    speech_plain = ("You spoke smoothly, without many long pauses."
+                    if s_level == "typical" else
+                    "You paused a little more than most people do."
+                    if s_level == "somewhat_elevated" else
+                    "You paused quite a lot while speaking.")
+
+    st.markdown(f"""
+        <div style='padding:1.5rem;background:#FFF8E6;border-left:5px solid #E8A33D;
+        border-radius:10px;margin:1rem 0;font-size:1.1rem;line-height:1.8;color:#333;'>
+            <div style='font-weight:700;font-size:1.25rem;margin-bottom:0.75rem;'>
+                What these two numbers mean
+            </div>
+
+            <b>🧠 Memory and thinking score — {score} out of 30</b><br>
+            This counts how many questions you answered correctly.
+            {cog_plain} A score of 26 or more is the usual range.<br><br>
+
+            <b>🎙️ Speech timing — {speech_val}</b><br>
+            This measures how much of the time you were quiet while speaking.
+            {speech_plain} Everyone pauses when they talk, and that is normal.<br><br>
+
+            <div style='background:#fff;padding:1rem;border-radius:8px;margin-top:0.5rem;'>
+            <b>Please remember:</b> this is a simple check made by students, not a
+            medical test. It is right about <b>6 times out of 10</b>, so it can easily
+            be wrong about you. Being tired, nervous, or in a noisy room can change
+            your result.<br><br>
+            <b>Only a doctor can tell you about your memory or your health.</b>
             </div>
         </div>
     """, unsafe_allow_html=True)
