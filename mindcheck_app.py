@@ -779,9 +779,8 @@ authority.
 **How accurate is it?**
 
 The speech model was tested on 100 recordings from the DementiaBank Pitt
-Corpus (50 people with dementia, 50 without). It gave the correct answer
-about **61% of the time** — better than guessing, but wrong roughly 4 times
-in every 10.
+Corpus (50 people with dementia, 50 without). It performed better than
+random guessing, but it is far from reliable for judging any single person.
 
 **What can change your result?**
 
@@ -975,7 +974,7 @@ def show_landing_page():
                 <ul>
                     <li>This assessment takes about <b>15&ndash;20 minutes</b> and consists of 20 short steps.</li>
                     <li>You will answer questions aloud using your device's microphone, in a quiet room if possible.</li>
-                    <li>Your results are based on a research method with an accuracy of approximately <b>61%</b> &mdash;
+                    <li>Your results are based on a research method that is still being developed &mdash;
                         please review the Disclaimer before proceeding.</li>
                     <li>No personal information is collected, and nothing is saved once you close this page.</li>
                 </ul>
