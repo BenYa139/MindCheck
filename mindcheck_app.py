@@ -46,10 +46,17 @@ SPEECH_KEYS = [
 
 def current_context():
     now = datetime.datetime.now()
-    month = now.month
-    season = ("winter" if month in (12,1,2) else
-              "spring" if month in (3,4,5) else
-              "summer" if month in (6,7,8) else "fall")
+    month, day = now.month, now.day
+    # Thailand's 3-season system (Thai Meteorological Department):
+    #   Summer (ฤดูร้อน):      mid-Feb to mid-May
+    #   Rainy season (ฤดูฝน):  mid-May to mid-Oct
+    #   Winter (ฤดูหนาว):      mid-Oct to mid-Feb
+    if month in (3, 4) or (month == 2 and day >= 15) or (month == 5 and day < 15):
+        season = "summer"
+    elif month in (6, 7, 8, 9) or (month == 5 and day >= 15) or (month == 10 and day < 15):
+        season = "rainy season"
+    else:
+        season = "winter"
     return {
         "day": now.day,
         "weekday": now.strftime("%A"),
@@ -447,6 +454,82 @@ def step_ori_place():
             st.session_state["ori_city_answered"] = True
     return step
 
+ANIMAL_WORDS = {
+    # farm / domestic
+    "dog","cat","cow","pig","horse","sheep","goat","chicken","duck","goose","rabbit",
+    "donkey","buffalo","llama","alpaca","mule","pony","hen","rooster","calf","lamb",
+    "piglet","kitten","puppy","ox","bull",
+    # small mammals / rodents
+    "mouse","rat","hamster","squirrel","raccoon","skunk","otter","beaver","bat",
+    "hedgehog","mole","weasel","chipmunk","gopher","ferret","chinchilla","possum",
+    "opossum","porcupine","armadillo","meerkat","gerbil","guinea pig",
+    # big cats
+    "lion","tiger","leopard","cheetah","jaguar","panther","cougar","puma","lynx",
+    "bobcat","ocelot","caracal",
+    # large wild mammals
+    "bear","wolf","fox","deer","elephant","zebra","giraffe","hippo","hippopotamus",
+    "rhino","rhinoceros","camel","bison","moose","elk","hyena","antelope","gazelle",
+    "wildebeest","warthog","boar","reindeer","caribou","yak","bighorn","polar bear",
+    "grizzly","panda","red panda","sloth","anteater","tapir","wolverine","badger",
+    # primates
+    "monkey","gorilla","chimpanzee","chimp","baboon","orangutan","lemur","gibbon",
+    "macaque","mandrill",
+    # australian / marsupials
+    "kangaroo","koala","wombat","platypus","dingo","tasmanian devil","wallaby",
+    "echidna",
+    # birds
+    "bird","eagle","hawk","owl","parrot","peacock","penguin","ostrich","flamingo",
+    "pigeon","crow","sparrow","robin","swan","turkey","stork","woodpecker","seagull",
+    "falcon","vulture","raven","cardinal","bluejay","hummingbird","toucan","macaw",
+    "cockatoo","canary","finch","dove","heron","crane","pelican","kiwi","emu","swift",
+    "magpie","chickadee","kingfisher","puffin","albatross","condor","quail","peahen",
+    "cassowary",
+    # sea / aquatic
+    "fish","shark","whale","dolphin","seal","walrus","octopus","squid","crab",
+    "lobster","shrimp","jellyfish","starfish","turtle","tortoise","manatee","otter",
+    "stingray","eel","seahorse","clam","oyster","mussel","urchin","narwhal","orca",
+    "salmon","tuna","catfish","goldfish","piranha","anglerfish","manta ray","sardine",
+    "swordfish","barracuda","clownfish",
+    # reptiles / amphibians
+    "snake","lizard","crocodile","alligator","frog","toad","iguana","chameleon",
+    "gecko","cobra","python","viper","rattlesnake","salamander","newt","komodo dragon",
+    "monitor lizard","anaconda","boa","skink","axolotl",
+    # insects / bugs
+    "bee","ant","butterfly","spider","fly","mosquito","beetle","ladybug","wasp",
+    "grasshopper","cricket","cockroach","worm","snail","scorpion","dragonfly","moth",
+    "termite","centipede","millipede","caterpillar","firefly","tick","flea","earwig",
+    "praying mantis","stick insect","aphid",
+    # prehistoric
+    "dinosaur","tyrannosaurus","triceratops","velociraptor","pterodactyl","mammoth",
+}
+
+# common irregular plurals, since simple "strip trailing s" fails for these
+IRREGULAR_PLURALS = {
+    "mice": "mouse", "geese": "goose", "wolves": "wolf", "leaves": "leaf",
+    "oxen": "ox", "cacti": "cactus", "fungi": "fungus", "sheep": "sheep",
+    "deer": "deer", "fish": "fish", "moose": "moose", "salmon": "salmon",
+    "wombats": "wombat", "loaves": "loaf", "feet": "foot", "geckoes": "gecko",
+}
+
+def normalize_animal_word(word):
+    """
+    Match a spoken word against ANIMAL_WORDS, handling plurals:
+      - exact match
+      - irregular plural (mice -> mouse)
+      - regular plural by stripping trailing 's' or 'es'
+    Returns the canonical (singular) animal name, or None if not an animal.
+    """
+    word = word.strip().lower()
+    if word in ANIMAL_WORDS:
+        return word
+    if word in IRREGULAR_PLURALS:
+        return IRREGULAR_PLURALS[word]
+    if word.endswith("es") and word[:-2] in ANIMAL_WORDS:
+        return word[:-2]
+    if word.endswith("s") and word[:-1] in ANIMAL_WORDS:
+        return word[:-1]
+    return None
+
 def step_fluency_animals():
     st.subheader("🦁 Verbal Fluency")
     st.caption("MoCA Domain: Language — Nasreddine et al., 2005")
@@ -454,8 +537,12 @@ def step_fluency_animals():
     ans = voice_input("fluency_animals")
     if ans:
         show_answer(ans)
-        count = len(set(ans.lower().split()))
-        st.write(f"📊 Approximate word count: **{count}** (need ≥11 for full point)")
+        spoken_words = ans.lower().split()
+        animals_named = {a for w in spoken_words if (a := normalize_animal_word(w))}
+        count = len(animals_named)
+        if animals_named:
+            st.caption(f"Animals recognised: {', '.join(sorted(animals_named))}")
+        st.write(f"📊 Animal count: **{count}** (need ≥11 for full point)")
         st.session_state["fluency_animals_count"] = count
 
 def step_calculation():
@@ -464,7 +551,7 @@ def step_calculation():
     st.write("Starting at 100, keep subtracting 7 and say **5 results** in a row:")
     st.markdown(
         "<div style='font-size:1.4rem;text-align:center;padding:1rem;"
-        "background:#f0f4ff;border-radius:12px;'>100 → 93 → 86 → 79 → 72 → 65</div>",
+        "background:#f0f4ff;border-radius:12px;'>100 &minus; 7 &minus; 7 &minus; 7 &minus; 7 &minus; 7</div>",
         unsafe_allow_html=True
     )
     ans = voice_input("calc_serial7")
@@ -865,7 +952,11 @@ STEPS = [
     make_ori_time_step("What year is it?", "ori_year",
                        lambda a: str(ctx["year"]) in a, ctx["year"]),
     make_ori_time_step("What season is it?", "ori_season",
-                       lambda a: ctx["season"].lower() in a.lower(), ctx["season"]),
+                       lambda a: any(w in a.lower() for w in
+                           (["summer", "hot"] if ctx["season"]=="summer" else
+                            ["rain", "rainy", "monsoon", "wet"] if ctx["season"]=="rainy season" else
+                            ["winter", "cool", "cold"])),
+                       ctx["season"]),
     step_ori_place(),
     step_fluency_animals,
     step_calculation,
