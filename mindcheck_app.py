@@ -735,6 +735,84 @@ This measures how much of the time you were quiet while speaking. {speech_plain}
         st.session_state["step"] = 0
         st.rerun()
 
+@st.dialog("⚠️ Important Disclaimer")
+def show_disclaimer():
+    """Modal shown when the sidebar Disclaimer button is pressed."""
+    st.markdown("""
+**MindCheck is a student research prototype. It is not a medical device.**
+
+This tool cannot diagnose Alzheimer's disease, dementia, or any other
+medical condition. It has not been reviewed or approved by any medical
+authority.
+
+**How accurate is it?**
+
+The speech model was tested on 100 recordings from the DementiaBank Pitt
+Corpus (50 people with dementia, 50 without). It gave the correct answer
+about **61% of the time** — better than guessing, but wrong roughly 4 times
+in every 10.
+
+**What can change your result?**
+
+Being tired, feeling nervous, background noise, microphone quality, or
+simply an unfamiliar task can all change your score. A result outside the
+usual range does not mean something is wrong.
+
+**Language**
+
+The system works in English only. It has not been tested on Thai speakers.
+
+**Your privacy**
+
+No personal information is collected. Your recordings are processed only
+during the session and are not saved anywhere. Closing the page erases
+everything.
+
+**If you are worried about your memory or thinking, please talk to a doctor.**
+This tool cannot answer that question and was not designed to.
+    """)
+    st.caption("Cognitive items adapted from Nasreddine ZS et al. (2005), *Journal of the American Geriatrics Society*, 53(4), 695-699.")
+    if st.button("Close", use_container_width=True):
+        st.rerun()
+
+
+def step_feedback():
+    st.subheader("⭐ Rate MindCheck")
+    st.write("How useful was this check for you?")
+
+    rating = st.feedback("stars", key="user_rating")
+
+    if rating is not None:
+        stars = rating + 1     # st.feedback returns 0-4
+        messages = {
+            1: "Thank you — we're sorry it wasn't useful. Your feedback helps us improve.",
+            2: "Thank you for the honest rating. We know there is a lot to improve.",
+            3: "Thank you — we appreciate the balanced feedback.",
+            4: "Thank you! We're glad it was helpful.",
+            5: "Thank you so much! We're glad it was helpful.",
+        }
+        st.success(f"{'⭐' * stars}  {messages[stars]}")
+
+    st.write("")
+    st.text_area(
+        "Any comments? (optional)",
+        placeholder="What worked well? What was confusing?",
+        key="user_comment",
+        height=110,
+    )
+    st.caption(
+        "Note: this is a prototype. Ratings and comments are not saved or "
+        "transmitted anywhere — they are cleared when you close the page."
+    )
+
+    st.markdown("---")
+    if st.button("🔁 Start a New Check", use_container_width=True, type="primary"):
+        for key in list(st.session_state.keys()):
+            del st.session_state[key]
+        st.session_state["step"] = 0
+        st.rerun()
+
+
 # ─────────────────────────────────────────────
 # BUILD STEPS LIST
 # ─────────────────────────────────────────────
@@ -766,6 +844,7 @@ STEPS = [
     make_naming_step(3, "What do you call the pet that barks and guards the house?", "naming_dog", "dog"),
     step_delayed_recall,
     step_results,
+    step_feedback,
 ]
 
 TOTAL_STEPS = len(STEPS)
@@ -785,6 +864,21 @@ with st.sidebar:
     st.markdown("**🧠 MindCheck**")
     st.caption("Cognitive + Speech Analysis")
     st.progress(step_idx / (TOTAL_STEPS - 1), text=f"Step {step_idx + 1} / {TOTAL_STEPS}")
+
+    st.markdown("---")
+
+    # Language selector. Only English is available: the model was trained
+    # entirely on English speech, so offering other languages would imply
+    # a capability the system does not have.
+    st.selectbox(
+        "🌐 Language",
+        ["English"],
+        index=0,
+        help="Only English is available. The speech model was trained on English recordings and has not been validated for other languages.",
+    )
+
+    if st.button("⚠️ Disclaimer", use_container_width=True):
+        show_disclaimer()
 
 st.progress(step_idx / (TOTAL_STEPS - 1), text=f"Step {step_idx + 1} / {TOTAL_STEPS}")
 
