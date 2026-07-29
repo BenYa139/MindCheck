@@ -735,6 +735,37 @@ This measures how much of the time you were quiet while speaking. {speech_plain}
         st.session_state["step"] = 0
         st.rerun()
 
+@st.dialog("📋 Instructions")
+def show_instructions():
+    """Modal explaining how to take the assessment."""
+    st.markdown("""
+**Before you begin**
+
+- Find a quiet room with as little background noise as possible.
+- Make sure your device's microphone is working and allowed in your browser.
+- Set aside about 15–20 minutes. You will not be able to pause partway through.
+
+**How each question works**
+
+1. Read (or listen to) the question on screen.
+2. Press the microphone button and speak your answer clearly.
+3. Press the microphone button again to stop recording.
+4. Wait a moment for your answer to appear as text.
+5. Press **Next** to continue, or **Back** to redo the previous question.
+
+**A few things to know**
+
+- There are 20 short steps in total. A progress bar at the top shows where you are.
+- Some questions ask you to remember words from earlier — try your best, there is no penalty for an imperfect answer.
+- If you skip a question by pressing Next without recording, it will simply be scored as incorrect.
+- Your results appear only after the final question, and are never saved after you close the page.
+
+**Take your time. There is no clock running, and you may go at your own pace.**
+    """)
+    if st.button("Got it", use_container_width=True):
+        st.rerun()
+
+
 @st.dialog("⚠️ Important Disclaimer")
 def show_disclaimer():
     """Modal shown when the sidebar Disclaimer button is pressed."""
@@ -851,6 +882,8 @@ TOTAL_STEPS = len(STEPS)
 
 if "step" not in st.session_state:
     st.session_state["step"] = 0
+if "started" not in st.session_state:
+    st.session_state["started"] = False
 
 step_idx = st.session_state["step"]
 
@@ -863,7 +896,8 @@ st.markdown("""
 with st.sidebar:
     st.markdown("**🧠 MindCheck**")
     st.caption("Cognitive + Speech Analysis")
-    st.progress(step_idx / (TOTAL_STEPS - 1), text=f"Step {step_idx + 1} / {TOTAL_STEPS}")
+    if st.session_state["started"]:
+        st.progress(step_idx / (TOTAL_STEPS - 1), text=f"Step {step_idx + 1} / {TOTAL_STEPS}")
 
     st.markdown("---")
 
@@ -877,8 +911,102 @@ with st.sidebar:
         help="Only English is available. The speech model was trained on English recordings and has not been validated for other languages.",
     )
 
+    if st.button("📋 Instructions", use_container_width=True):
+        show_instructions()
     if st.button("⚠️ Disclaimer", use_container_width=True):
         show_disclaimer()
+
+
+# ─────────────────────────────────────────────
+# LANDING PAGE
+# ─────────────────────────────────────────────
+def show_landing_page():
+    st.markdown("""
+        <style>
+        @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Source+Serif+4:wght@400;500&display=swap');
+        .mc-landing { text-align:center; padding: 2.5rem 1rem 1rem 1rem; }
+        .mc-crest {
+            width: 84px; height: 84px; margin: 0 auto 1.25rem auto;
+            border: 2.5px solid #1B2A4A; border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 2.3rem; background: #F7F5EF;
+        }
+        .mc-title {
+            font-family: 'Playfair Display', Georgia, serif;
+            font-size: 2.6rem; font-weight: 700; color: #1B2A4A;
+            letter-spacing: 0.5px; margin-bottom: 0.3rem;
+        }
+        .mc-rule { width: 70px; height: 3px; background: #B08D57; margin: 0.6rem auto 1.1rem auto; }
+        .mc-subtitle {
+            font-family: 'Source Serif 4', Georgia, serif;
+            font-size: 1.15rem; color: #3C3C3C; font-style: italic;
+            margin-bottom: 2rem;
+        }
+        .mc-card {
+            font-family: 'Source Serif 4', Georgia, serif;
+            background: #FBFAF7; border: 1px solid #E2DFD5; border-radius: 10px;
+            padding: 1.6rem 1.8rem; text-align: left; margin-bottom: 1.5rem;
+        }
+        .mc-card h4 {
+            font-family: 'Playfair Display', Georgia, serif;
+            color: #1B2A4A; font-size: 1.05rem; margin-bottom: 0.8rem;
+            border-bottom: 1px solid #E2DFD5; padding-bottom: 0.5rem;
+        }
+        .mc-card li { margin-bottom: 0.45rem; color: #333; line-height: 1.55; }
+        .mc-foot {
+            font-family: 'Source Serif 4', Georgia, serif;
+            font-size: 0.82rem; color: #7A7A7A; margin-top: 1.2rem;
+        }
+        </style>
+
+        <div class='mc-landing'>
+            <div class='mc-crest'>🧠</div>
+            <div class='mc-title'>MindCheck</div>
+            <div class='mc-rule'></div>
+            <div class='mc-subtitle'>A Cognitive &amp; Speech Assessment</div>
+        </div>
+    """, unsafe_allow_html=True)
+
+    col = st.columns([1, 3, 1])[1]
+    with col:
+        st.markdown("""
+            <div class='mc-card'>
+                <h4>Before You Begin</h4>
+                <ul>
+                    <li>This assessment takes about <b>15&ndash;20 minutes</b> and consists of 20 short steps.</li>
+                    <li>You will answer questions aloud using your device's microphone, in a quiet room if possible.</li>
+                    <li>Your results are based on a research method with an accuracy of approximately <b>61%</b> &mdash;
+                        please review the Disclaimer before proceeding.</li>
+                    <li>No personal information is collected, and nothing is saved once you close this page.</li>
+                </ul>
+            </div>
+        """, unsafe_allow_html=True)
+
+        c1, c2 = st.columns(2)
+        with c1:
+            if st.button("📋 View Instructions", use_container_width=True):
+                show_instructions()
+        with c2:
+            if st.button("⚠️ View Disclaimer", use_container_width=True):
+                show_disclaimer()
+
+        st.write("")
+        if st.button("Start Assessment  →", use_container_width=True, type="primary"):
+            st.session_state["started"] = True
+            st.rerun()
+
+        st.markdown("""
+            <div class='mc-foot' style='text-align:center;'>
+                Cognitive items adapted from Nasreddine et al. (2005),
+                <i>Journal of the American Geriatrics Society</i>.<br>
+                A student research prototype &mdash; not a medical device.
+            </div>
+        """, unsafe_allow_html=True)
+
+
+if not st.session_state["started"]:
+    show_landing_page()
+    st.stop()
 
 st.progress(step_idx / (TOTAL_STEPS - 1), text=f"Step {step_idx + 1} / {TOTAL_STEPS}")
 
