@@ -2,6 +2,7 @@ import streamlit as st
 import speech_recognition as sr
 import tempfile
 import os
+import re
 import datetime
 import numpy as np
 
@@ -24,11 +25,14 @@ SENTENCES = [
     "The cat always hid under the couch when dogs were in the room",
 ]
 KEYWORDS = {
-    "vehicle":   ["vehicle", "transport", "transportation", "wheels", "ride", "travel", "move"],
-    "furniture": ["furniture", "wood", "sit", "house", "home"],
-    "watch":     ["watch"],
-    "pen":       ["pen", "pencil"],
-    "dog":       ["dog"],
+    "vehicle":   ["vehicle", "transport", "transportation", "wheel", "ride",
+                  "travel", "move", "drive", "driving", "get around",
+                  "take you places", "carry people", "commute", "machine"],
+    "furniture": ["furniture", "wood", "sit", "seat", "house", "home",
+                  "room", "table", "kitchen", "dining", "household"],
+    "watch":     ["watch", "wristwatch", "clock", "timepiece"],
+    "pen":       ["pen", "pencil", "biro", "marker", "ballpoint"],
+    "dog":       ["dog", "puppy", "hound", "canine"],
 }
 MAX_SCORE = 30
 
@@ -68,14 +72,43 @@ def current_context():
 # ─────────────────────────────────────────────
 # HELPERS
 # ─────────────────────────────────────────────
-def transcribe_audio(audio_bytes):
+def transcribe_audio(audio_bytes, prefer_numbers=False):
+    """
+    Transcribe recorded speech.
+
+    prefer_numbers: when True (used for the calculation question), the
+    recogniser's alternative hypotheses are inspected and the one
+    containing the most digits is chosen. Speech recognisers frequently
+    return a best guess with no numbers ("nine deer sex") while a lower-
+    ranked alternative has them correct, so for number questions the
+    top hypothesis alone is not good enough.
+    """
     with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as f:
         f.write(audio_bytes)
         path = f.name
     try:
         r = sr.Recognizer()
         with sr.AudioFile(path) as source:
+            # adjust for room noise so quiet speech isn't clipped
+            try:
+                r.adjust_for_ambient_noise(source, duration=0.3)
+            except Exception:
+                pass
             data = r.record(source)
+
+        if prefer_numbers:
+            try:
+                result = r.recognize_google(data, language="en-US", show_all=True)
+                if isinstance(result, dict) and result.get("alternative"):
+                    candidates = [alt.get("transcript", "")
+                                  for alt in result["alternative"] if alt.get("transcript")]
+                    if candidates:
+                        # pick whichever hypothesis yields the most digits
+                        return max(candidates,
+                                   key=lambda c: len(spoken_to_digit_stream(c)))
+            except Exception:
+                pass
+
         return r.recognize_google(data, language="en-US")
     except sr.UnknownValueError:
         return None
@@ -90,15 +123,66 @@ def similarity_score(spoken, reference):
     matches = sum(1 for w in reference.split() if w.lower() in spoken_clean)
     return matches / max(len(reference.split()), 1)
 
+NUMBER_WORDS = {
+    "zero":"0","oh":"0","o":"0","one":"1","two":"2","to":"2","too":"2",
+    "three":"3","four":"4","for":"4","fore":"4","five":"5","six":"6",
+    "seven":"7","eight":"8","ate":"8","nine":"9",
+}
+
+def extract_digits(text):
+    """
+    Pull an ordered list of digits out of a spoken answer.
+
+    Speech-to-text usually returns number WORDS ("two four seven"), not
+    numerals, so matching on str.isdigit() alone fails. This handles both,
+    plus common homophones the recogniser produces ("to" -> 2, "for" -> 4).
+    """
+    digits = []
+    for token in re.findall(r"[a-z]+|\d", text.lower()):
+        if token.isdigit():
+            digits.append(token)
+        elif token in NUMBER_WORDS:
+            digits.append(NUMBER_WORDS[token])
+    return digits
+
 def digits_in_order(text, sequence):
-    return [ch for ch in text if ch.isdigit()] == sequence
+    """
+    Check a digit-span answer.
+
+    Compares against the full digit stream rather than requiring the
+    recogniser to space the numbers correctly, so "2 4 7", "two four
+    seven" and "247" all count as the same answer.
+    """
+    return spoken_to_digit_stream(text) == "".join(sequence)
 
 def contains_any(text, keywords):
-    import re
+    """
+    Check whether a spoken answer contains any accepted keyword.
+
+    Matches the keyword plus common inflections, so that fully correct
+    answers are not marked wrong on a grammatical technicality:
+        vehicle   -> vehicles
+        transport -> transportation
+        cut       -> cutting, cuts
+        move      -> moving, moves
+    """
     text_l = text.lower()
     for k in keywords:
-        if re.search(r"\b" + re.escape(k.lower()) + r"\b", text_l):
-            return True
+        kl = k.lower()
+        stem = re.escape(kl)
+        last = kl[-1:]
+        patterns = [
+            stem + r"(s|es|ing|ed|d|ion|ation|er|ers)?",   # regular endings
+        ]
+        if last == "e":
+            # silent-e drop: move -> moving, ride -> riding
+            patterns.append(re.escape(kl[:-1]) + r"(ing|ed|es|er|ers)")
+        elif last.isalpha() and last not in "aeiou":
+            # doubled final consonant: cut -> cutting, run -> running
+            patterns.append(stem + last + r"(ing|ed|er|ers)")
+        for p in patterns:
+            if re.search(r"\b" + p + r"\b", text_l):
+                return True
     return False
 
 # ─────────────────────────────────────────────
@@ -316,6 +400,8 @@ def ai_grade(question_text, spoken_answer):
     except Exception:
         return None
 
+NUMBER_QUESTION_KEYS = {"fwd", "bwd", "calc_serial7", "ori_date", "ori_year"}
+
 def voice_input(key):
     """Record audio, transcribe, and store raw pause ratio separately."""
     audio = st.audio_input("🎙️ Record your answer", key=key)
@@ -324,7 +410,10 @@ def voice_input(key):
         if audio_bytes != st.session_state.get(f"{key}_bytes"):
             st.session_state[f"{key}_bytes"] = audio_bytes
             with st.spinner("Transcribing…"):
-                result = transcribe_audio(audio_bytes)
+                result = transcribe_audio(
+                    audio_bytes,
+                    prefer_numbers=(key in NUMBER_QUESTION_KEYS),
+                )
             st.session_state[f"{key}_text"] = result or ""
             if result is None:
                 st.error("Could not recognise — please try again.")
@@ -545,6 +634,68 @@ def step_fluency_animals():
         st.write(f"📊 Animal count: **{count}** (need ≥11 for full point)")
         st.session_state["fluency_animals_count"] = count
 
+TENS_WORDS = {
+    "twenty":20, "thirty":30, "forty":40, "fourty":40, "fifty":50,
+    "sixty":60, "seventy":70, "eighty":80, "ninety":90, "ninty":90,
+}
+UNIT_WORDS = {
+    "zero":0,"one":1,"two":2,"three":3,"four":4,"five":5,"six":6,
+    "seven":7,"eight":8,"nine":9,"ten":10,"eleven":11,"twelve":12,
+    "thirteen":13,"fourteen":14,"fifteen":15,"sixteen":16,
+    "seventeen":17,"eighteen":18,"nineteen":19,
+}
+
+def spoken_to_digit_stream(text):
+    """
+    Turn a spoken answer into one continuous string of digits.
+
+    Speech recognisers are unreliable with number sequences: saying
+    "93, 86" can come back as "93 86", "9386", "936", or as words
+    ("ninety three eighty six"). Rather than trying to split it back
+    into separate numbers, this collapses everything into a single
+    digit stream, which the caller then scans in order.
+    """
+    tokens = re.findall(r"\d+|[a-z]+", text.lower())
+    out = []
+    i = 0
+    while i < len(tokens):
+        t = tokens[i]
+        if t.isdigit():
+            out.append(t)
+            i += 1
+        elif t in TENS_WORDS:
+            val = TENS_WORDS[t]
+            # "ninety three" -> 93
+            if i + 1 < len(tokens) and tokens[i+1] in UNIT_WORDS and UNIT_WORDS[tokens[i+1]] < 10:
+                val += UNIT_WORDS[tokens[i+1]]
+                i += 1
+            out.append(str(val))
+            i += 1
+        elif t in UNIT_WORDS:
+            out.append(str(UNIT_WORDS[t]))
+            i += 1
+        elif t in ("hundred",):
+            i += 1
+        else:
+            i += 1
+    return "".join(out)
+
+def count_sequence_in_stream(stream, expected):
+    """
+    Count how many of the expected numbers appear IN ORDER within the
+    digit stream. Scanning left-to-right means "9386797265" correctly
+    yields all five of 93, 86, 79, 72, 65 without needing them to be
+    separated by spaces.
+    """
+    pos = 0
+    found = []
+    for e in expected:
+        idx = stream.find(e, pos)
+        if idx != -1:
+            found.append(e)
+            pos = idx + len(e)
+    return found
+
 def step_calculation():
     st.subheader("🧮 Calculation")
     st.caption("MoCA Domain: Attention — Nasreddine et al., 2005")
@@ -554,13 +705,17 @@ def step_calculation():
         "background:#f0f4ff;border-radius:12px;'>100 &minus; 7 &minus; 7 &minus; 7 &minus; 7 &minus; 7</div>",
         unsafe_allow_html=True
     )
+    st.caption("💡 Speak each number clearly, with a short pause between them.")
     ans = voice_input("calc_serial7")
     if ans:
         show_answer(ans)
         expected = ["93","86","79","72","65"]
-        spoken = [t for t in ans.replace(",", " ").split() if t.isdigit()]
-        correct = sum(1 for e in expected if e in spoken)
+        stream = spoken_to_digit_stream(ans)
+        found = count_sequence_in_stream(stream, expected)
+        correct = len(found)
         pts = 3 if correct >= 4 else 2 if correct == 3 else 1 if correct in (1,2) else 0
+        if found:
+            st.caption(f"Numbers recognised: {', '.join(found)}")
         st.write(f"📊 {correct}/5 correct → **{pts}/3 pts**")
         st.session_state["calc_correct_count"] = correct
         st.session_state["calc_pts"] = pts
