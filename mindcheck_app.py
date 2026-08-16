@@ -72,51 +72,116 @@ def current_context():
 # ─────────────────────────────────────────────
 # HELPERS
 # ─────────────────────────────────────────────
-def transcribe_audio(audio_bytes, prefer_numbers=False):
+def _score_candidate(candidate, hint, hint_data):
+    """
+    Rank a recogniser hypothesis against what this question expects.
+    Higher is better.
+    """
+    c = candidate.lower()
+    if hint == "numbers":
+        return len(spoken_to_digit_stream(candidate))
+    if hint == "sentence" and hint_data:
+        ref = hint_data.lower().split()
+        if not ref:
+            return 0
+        return sum(1 for w in ref if w in c)
+    if hint == "keywords" and hint_data:
+        return sum(1 for k in hint_data if k.lower() in c)
+    if hint == "wordlist" and hint_data:
+        return sum(1 for w in hint_data if w.lower() in c)
+    if hint == "animals":
+        return sum(1 for w in c.split() if normalize_animal_word(w))
+    return len(c.split())
+
+
+def transcribe_audio(audio_bytes, hint=None, hint_data=None):
     """
     Transcribe recorded speech.
 
-    prefer_numbers: when True (used for the calculation question), the
-    recogniser's alternative hypotheses are inspected and the one
-    containing the most digits is chosen. Speech recognisers frequently
-    return a best guess with no numbers ("nine deer sex") while a lower-
-    ranked alternative has them correct, so for number questions the
-    top hypothesis alone is not good enough.
+    Returns (best_transcript, all_candidates).
+
+    Google returns several ranked hypotheses. Rather than discarding the
+    losers, all of them are kept: the display shows the best one, but
+    scoring searches every hypothesis. A word the top guess missed
+    ("church" heard as "shirt") is often present in a lower-ranked
+    alternative, and recovering it is the difference between a correct
+    answer being marked right or wrong.
     """
     with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as f:
         f.write(audio_bytes)
         path = f.name
     try:
         r = sr.Recognizer()
+        r.energy_threshold = 300
+        r.dynamic_energy_threshold = True
         with sr.AudioFile(path) as source:
-            # adjust for room noise so quiet speech isn't clipped
             try:
                 r.adjust_for_ambient_noise(source, duration=0.3)
             except Exception:
                 pass
             data = r.record(source)
 
-        if prefer_numbers:
-            try:
-                result = r.recognize_google(data, language="en-US", show_all=True)
-                if isinstance(result, dict) and result.get("alternative"):
-                    candidates = [alt.get("transcript", "")
-                                  for alt in result["alternative"] if alt.get("transcript")]
-                    if candidates:
-                        # pick whichever hypothesis yields the most digits
-                        return max(candidates,
-                                   key=lambda c: len(spoken_to_digit_stream(c)))
-            except Exception:
-                pass
+        candidates = []
+        try:
+            result = r.recognize_google(data, language="en-US", show_all=True)
+            if isinstance(result, dict) and result.get("alternative"):
+                candidates = [a.get("transcript", "") for a in result["alternative"]
+                              if a.get("transcript")]
+        except Exception:
+            pass
 
-        return r.recognize_google(data, language="en-US")
+        if not candidates:
+            single = r.recognize_google(data, language="en-US")
+            return single, [single]
+
+        best = candidates[0]
+        if hint:
+            ranked = max(candidates, key=lambda c: _score_candidate(c, hint, hint_data))
+            if _score_candidate(ranked, hint, hint_data) > _score_candidate(best, hint, hint_data):
+                best = ranked
+        return best, candidates
+
     except sr.UnknownValueError:
-        return None
+        return None, []
     except sr.RequestError as e:
         st.error(f"Speech service error: {e}")
-        return None
+        return None, []
     finally:
         os.unlink(path)
+
+
+def get_all_hypotheses(key):
+    """Every transcript hypothesis for this answer, for lenient scoring."""
+    return st.session_state.get(f"{key}_alts", [])
+
+
+def heard_any(key, spoken_text, targets):
+    """
+    Check whether any target word appears in ANY hypothesis, allowing for
+    close mishearings.
+
+    Two layers:
+      1. exact substring in any hypothesis
+      2. fuzzy match (>=0.75 similarity) against any spoken word, which
+         catches recogniser slips like "daisy" -> "dazy"
+    """
+    import difflib
+    pool = [spoken_text] + get_all_hypotheses(key)
+    found = set()
+    for t in targets:
+        tl = t.lower()
+        for hyp in pool:
+            h = hyp.lower()
+            if tl in h:
+                found.add(t)
+                break
+            for w in re.findall(r"[a-z']+", h):
+                if difflib.SequenceMatcher(None, tl, w).ratio() >= 0.75:
+                    found.add(t)
+                    break
+            if t in found:
+                break
+    return found
 
 def similarity_score(spoken, reference):
     spoken_clean = spoken.lower().replace(" ", "")
@@ -400,20 +465,15 @@ def ai_grade(question_text, spoken_answer):
     except Exception:
         return None
 
-NUMBER_QUESTION_KEYS = {"fwd", "bwd", "calc_serial7", "ori_date", "ori_year"}
-
-def voice_input(key):
-    """Record audio, transcribe, and store raw pause ratio separately."""
+def voice_input(key, hint=None, hint_data=None):
+    """Record audio, transcribe, and store speech timing separately."""
     audio = st.audio_input("🎙️ Record your answer", key=key)
     if audio is not None:
         audio_bytes = audio.read()
         if audio_bytes != st.session_state.get(f"{key}_bytes"):
             st.session_state[f"{key}_bytes"] = audio_bytes
             with st.spinner("Transcribing…"):
-                result = transcribe_audio(
-                    audio_bytes,
-                    prefer_numbers=(key in NUMBER_QUESTION_KEYS),
-                )
+                result = transcribe_audio(audio_bytes, hint=hint, hint_data=hint_data)
             st.session_state[f"{key}_text"] = result or ""
             if result is None:
                 st.error("Could not recognise — please try again.")
@@ -451,7 +511,7 @@ def step_forward_digits():
         "text-align:center;padding:1.5rem;background:#f0f4ff;border-radius:12px;'>"
         "2 – 1 – 8 – 5 – 4</div>", unsafe_allow_html=True
     )
-    ans = voice_input("fwd")
+    ans = voice_input("fwd", hint="numbers")
     if ans:
         show_answer(ans)
         ok = digits_in_order(ans, ["2","1","8","5","4"])
@@ -467,7 +527,7 @@ def step_backward_digits():
         "text-align:center;padding:1.5rem;background:#f0f4ff;border-radius:12px;'>"
         "7 – 4 – 2</div>", unsafe_allow_html=True
     )
-    ans = voice_input("bwd")
+    ans = voice_input("bwd", hint="numbers")
     if ans:
         show_answer(ans)
         ok = digits_in_order(ans, ["2","4","7"])
@@ -484,7 +544,7 @@ def make_sentence_step(i, sentence):
             f"border-radius:12px;font-style:italic;'>\"{sentence}\"</div>",
             unsafe_allow_html=True
         )
-        ans = voice_input(f"lang{i}")
+        ans = voice_input(f"lang{i}", hint="sentence", hint_data=sentence)
         if ans:
             show_answer(ans)
             sc = similarity_score(ans, sentence)
@@ -501,7 +561,7 @@ def make_abstraction_step(n, question, key, kw_key):
             f"<div style='font-size:1.2rem;padding:1.5rem;background:#f0f4ff;"
             f"border-radius:12px;'>{question}</div>", unsafe_allow_html=True
         )
-        ans = voice_input(f"abs{n}_widget")
+        ans = voice_input(f"abs{n}_widget", hint="keywords", hint_data=KEYWORDS[kw_key])
         if ans:
             show_answer(ans)
             ok = ai_grade(question, ans)
@@ -519,7 +579,7 @@ def make_ori_time_step(question, key, check_fn, truth):
             f"<div style='font-size:1.2rem;padding:1.5rem;background:#f0f4ff;"
             f"border-radius:12px;'>{question}</div>", unsafe_allow_html=True
         )
-        ans = voice_input(key)
+        ans = voice_input(key, hint="numbers" if key in ("ori_date","ori_year") else None)
         if ans:
             show_answer(ans)
             ok = check_fn(ans)
@@ -623,7 +683,7 @@ def step_fluency_animals():
     st.subheader("🦁 Verbal Fluency")
     st.caption("MoCA Domain: Language — Nasreddine et al., 2005")
     st.write("⏱️ Name as many **animals** as you can in 1 minute:")
-    ans = voice_input("fluency_animals")
+    ans = voice_input("fluency_animals", hint="animals")
     if ans:
         show_answer(ans)
         spoken_words = ans.lower().split()
@@ -706,7 +766,7 @@ def step_calculation():
         unsafe_allow_html=True
     )
     st.caption("💡 Speak each number clearly, with a short pause between them.")
-    ans = voice_input("calc_serial7")
+    ans = voice_input("calc_serial7", hint="numbers")
     if ans:
         show_answer(ans)
         expected = ["93","86","79","72","65"]
@@ -728,7 +788,7 @@ def make_naming_step(n, question, key, kw_key):
             f"<div style='font-size:1.2rem;padding:1.5rem;background:#f0f4ff;"
             f"border-radius:12px;'>{question}</div>", unsafe_allow_html=True
         )
-        ans = voice_input(key)
+        ans = voice_input(key, hint="keywords", hint_data=KEYWORDS[kw_key])
         if ans:
             show_answer(ans)
             ok = ai_grade(question, ans)
@@ -742,7 +802,7 @@ def step_delayed_recall():
     st.subheader("🧠 Delayed Recall")
     st.caption("MoCA Domain: Memory — Nasreddine et al., 2005")
     st.write("Say as many words as you can remember from the very beginning:")
-    ans = voice_input("recall_widget")
+    ans = voice_input("recall_widget", hint="wordlist", hint_data=WORDS)
     if ans:
         show_answer(ans)
         found = [w for w in WORDS if w.lower() in ans.lower()]
@@ -893,28 +953,43 @@ f"""<div style='text-align:center;padding:2rem 1.5rem;background:{r_bg};border:3
 </div>""", unsafe_allow_html=True)
 
     # ── RISK GAUGE ───────────────────────────────
-    # The needle points to the middle of the band, because this result is a
-    # 3-level category, not a continuous 0-100 score. Showing a precise
-    # number would imply accuracy this method does not have.
+    # 4-color gradient arc (green -> yellow -> orange -> red), styled after
+    # a standard risk-meter design. The needle points to the middle of the
+    # matched band, because the result is a 3-level category, not a
+    # continuous 0-100 score — a precise number would imply more accuracy
+    # than this method has.
     if r_title == "Low Risk":
-        needle_x, needle_y, gauge_col = 113, 130, "#4CAF50"
+        needle_x, needle_y, gauge_col = 103.5, 145.0, "#43A047"
     elif r_title == "Moderate Risk":
-        needle_x, needle_y, gauge_col = 200, 80, "#FFA726"
+        needle_x, needle_y, gauge_col = 200.0, 80.6, "#FB8C00"
     else:
-        needle_x, needle_y, gauge_col = 287, 130, "#E53935"
+        needle_x, needle_y, gauge_col = 296.5, 145.0, "#E53935"
 
     st.markdown(
 f"""<div style='text-align:center;margin:1.5rem 0;'>
-<svg viewBox="0 0 400 250" style="width:100%;max-width:420px;height:auto;">
-<path d="M 70 180 A 130 130 0 0 1 135 67" stroke="#4CAF50" stroke-width="34" fill="none" opacity="{1.0 if r_title=='Low Risk' else 0.25}"/>
-<path d="M 135 67 A 130 130 0 0 1 265 67" stroke="#FFA726" stroke-width="34" fill="none" opacity="{1.0 if r_title=='Moderate Risk' else 0.25}"/>
-<path d="M 265 67 A 130 130 0 0 1 330 180" stroke="#E53935" stroke-width="34" fill="none" opacity="{1.0 if r_title=='High Risk' else 0.25}"/>
-<text x="72" y="214" font-size="20" font-weight="700" fill="#4CAF50" text-anchor="middle">LOW</text>
-<text x="200" y="34" font-size="20" font-weight="700" fill="#FFA726" text-anchor="middle">MODERATE</text>
-<text x="330" y="214" font-size="20" font-weight="700" fill="#E53935" text-anchor="middle">HIGH</text>
-<line x1="200" y1="180" x2="{needle_x}" y2="{needle_y}" stroke="#37474F" stroke-width="7" stroke-linecap="round"/>
-<circle cx="200" cy="180" r="15" fill="#37474F"/>
-<text x="200" y="243" font-size="27" font-weight="800" fill="{gauge_col}" text-anchor="middle">{r_title.upper()}</text>
+<svg viewBox="0 0 400 260" style="width:100%;max-width:440px;height:auto;">
+<defs>
+<linearGradient id="gaugeGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+<stop offset="0%" stop-color="#2E7D32"/>
+<stop offset="30%" stop-color="#8BC34A"/>
+<stop offset="55%" stop-color="#FDD835"/>
+<stop offset="78%" stop-color="#FB8C00"/>
+<stop offset="100%" stop-color="#E53935"/>
+</linearGradient>
+<filter id="needleShadow" x="-50%" y="-50%" width="200%" height="200%">
+<feDropShadow dx="0" dy="2" stdDeviation="2.5" flood-color="#000" flood-opacity="0.28"/>
+</filter>
+</defs>
+<path d="M 55 185 A 145 145 0 0 1 345 185" stroke="url(#gaugeGrad)" stroke-width="34" fill="none" stroke-linecap="round"/>
+<text x="21" y="220" font-size="17" font-weight="700" fill="#43A047" text-anchor="middle">LOW</text>
+<text x="200" y="26" font-size="17" font-weight="700" fill="#FB8C00" text-anchor="middle">MODERATE</text>
+<text x="379" y="220" font-size="17" font-weight="700" fill="#E53935" text-anchor="middle">HIGH</text>
+<g filter="url(#needleShadow)">
+<line x1="200" y1="185" x2="{needle_x}" y2="{needle_y}" stroke="#2B2B2B" stroke-width="6" stroke-linecap="round"/>
+<circle cx="200" cy="185" r="16" fill="#2B2B2B"/>
+<circle cx="200" cy="185" r="6.5" fill="#FFFFFF"/>
+</g>
+<text x="200" y="248" font-size="27" font-weight="800" fill="{gauge_col}" text-anchor="middle">{r_title.upper()}</text>
 </svg>
 </div>""", unsafe_allow_html=True)
 
