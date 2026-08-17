@@ -474,8 +474,11 @@ def voice_input(key, hint=None, hint_data=None):
             st.session_state[f"{key}_bytes"] = audio_bytes
             with st.spinner("Transcribing…"):
                 result = transcribe_audio(audio_bytes, hint=hint, hint_data=hint_data)
-            st.session_state[f"{key}_text"] = result or ""
-            if result is None:
+            # transcribe_audio returns (best_text, all_candidates) - unpack both
+            best_text, candidates = result if result is not None else (None, [])
+            st.session_state[f"{key}_text"] = best_text or ""
+            st.session_state[f"{key}_alts"] = candidates
+            if best_text is None:
                 st.error("Could not recognise — please try again.")
             # Speech timing is recorded separately and never alters the MoCA score
             timing = analyze_speech_timing(audio_bytes)
