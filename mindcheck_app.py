@@ -956,28 +956,43 @@ f"""<div style='text-align:center;padding:2rem 1.5rem;background:{r_bg};border:3
 </div>""", unsafe_allow_html=True)
 
     # ── RISK GAUGE ───────────────────────────────
-    # The needle points to the middle of the band, because this result is a
-    # 3-level category, not a continuous 0-100 score. Showing a precise
-    # number would imply accuracy this method does not have.
+    # 4-color gradient arc (green -> yellow -> orange -> red), styled after
+    # a standard risk-meter design. The needle points to the middle of the
+    # matched band, because the result is a 3-level category, not a
+    # continuous 0-100 score — a precise number would imply more accuracy
+    # than this method has.
     if r_title == "Low Risk":
-        needle_x, needle_y, gauge_col = 113, 130, "#4CAF50"
+        needle_x, needle_y, gauge_col = 103.5, 155.0, "#43A047"
     elif r_title == "Moderate Risk":
-        needle_x, needle_y, gauge_col = 200, 80, "#FFA726"
+        needle_x, needle_y, gauge_col = 200.0, 90.6, "#FB8C00"
     else:
-        needle_x, needle_y, gauge_col = 287, 130, "#E53935"
+        needle_x, needle_y, gauge_col = 296.5, 155.0, "#E53935"
 
     st.markdown(
 f"""<div style='text-align:center;margin:1.5rem 0;'>
-<svg viewBox="0 0 400 250" style="width:100%;max-width:420px;height:auto;">
-<path d="M 70 180 A 130 130 0 0 1 135 67" stroke="#4CAF50" stroke-width="34" fill="none" opacity="{1.0 if r_title=='Low Risk' else 0.25}"/>
-<path d="M 135 67 A 130 130 0 0 1 265 67" stroke="#FFA726" stroke-width="34" fill="none" opacity="{1.0 if r_title=='Moderate Risk' else 0.25}"/>
-<path d="M 265 67 A 130 130 0 0 1 330 180" stroke="#E53935" stroke-width="34" fill="none" opacity="{1.0 if r_title=='High Risk' else 0.25}"/>
-<text x="72" y="214" font-size="20" font-weight="700" fill="#4CAF50" text-anchor="middle">LOW</text>
-<text x="200" y="34" font-size="20" font-weight="700" fill="#FFA726" text-anchor="middle">MODERATE</text>
-<text x="330" y="214" font-size="20" font-weight="700" fill="#E53935" text-anchor="middle">HIGH</text>
-<line x1="200" y1="180" x2="{needle_x}" y2="{needle_y}" stroke="#37474F" stroke-width="7" stroke-linecap="round"/>
-<circle cx="200" cy="180" r="15" fill="#37474F"/>
-<text x="200" y="243" font-size="27" font-weight="800" fill="{gauge_col}" text-anchor="middle">{r_title.upper()}</text>
+<svg viewBox="0 0 400 270" style="width:100%;max-width:440px;height:auto;">
+<defs>
+<linearGradient id="gaugeGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+<stop offset="0%" stop-color="#2E7D32"/>
+<stop offset="30%" stop-color="#8BC34A"/>
+<stop offset="55%" stop-color="#FDD835"/>
+<stop offset="78%" stop-color="#FB8C00"/>
+<stop offset="100%" stop-color="#E53935"/>
+</linearGradient>
+<filter id="needleShadow" x="-50%" y="-50%" width="200%" height="200%">
+<feDropShadow dx="0" dy="2" stdDeviation="2.5" flood-color="#000" flood-opacity="0.28"/>
+</filter>
+</defs>
+<path d="M 55 195 A 145 145 0 0 1 345 195" stroke="url(#gaugeGrad)" stroke-width="34" fill="none" stroke-linecap="round"/>
+<text x="21" y="230" font-size="17" font-weight="700" fill="#43A047" text-anchor="middle">LOW</text>
+<text x="200" y="20" font-size="17" font-weight="700" fill="#FB8C00" text-anchor="middle">MODERATE</text>
+<text x="379" y="230" font-size="17" font-weight="700" fill="#E53935" text-anchor="middle">HIGH</text>
+<g filter="url(#needleShadow)">
+<line x1="200" y1="195" x2="{needle_x}" y2="{needle_y}" stroke="#2B2B2B" stroke-width="6" stroke-linecap="round"/>
+<circle cx="200" cy="195" r="16" fill="#2B2B2B"/>
+<circle cx="200" cy="195" r="6.5" fill="#FFFFFF"/>
+</g>
+<text x="200" y="258" font-size="27" font-weight="800" fill="{gauge_col}" text-anchor="middle">{r_title.upper()}</text>
 </svg>
 </div>""", unsafe_allow_html=True)
 
